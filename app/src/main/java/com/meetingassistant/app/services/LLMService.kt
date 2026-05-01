@@ -44,7 +44,7 @@ class LLMService(private val context: Context) {
         val model: String,
         val messages: List<ChatMessage>,
         val temperature: Double = 0.7,
-        @SerializedName("max_tokens") val maxTokens: Int = 2048
+        @SerializedName("max_tokens") val maxTokens: Int = 512
     )
 
     data class ChatMessage(
@@ -181,7 +181,7 @@ class LLMService(private val context: Context) {
 
     /**
      * Quick analysis triggered automatically when recording is paused.
-     * Analyzes the recent transcript and returns key insights + suggested questions.
+     * Provides concise technical guidance on topics discussed.
      */
     suspend fun analyzeOnPause(transcript: List<TranscriptEntry>): Result<String> {
         if (transcript.isEmpty()) {
@@ -194,16 +194,16 @@ class LLMService(private val context: Context) {
 
         val messages = listOf(
             Message(
-                content = """Recording was just paused. Analyze the latest meeting discussion and provide:
+                content = """Analyze this meeting transcript and give SHORT, ACTIONABLE technical guidance.
 
-1. **Quick Summary** (2-3 sentences of what was just discussed)
-2. **Key Points** (bullet points of important items)
-3. **Questions to Consider** (2-3 follow-up questions that might be useful)
-4. **Action Items Spotted** (any tasks or follow-ups mentioned)
+For each topic mentioned, provide:
+- Key steps (numbered, brief)
+- Important config/settings (if applicable)
+- One best practice tip
 
-Keep it concise and immediately useful. The user will hear this spoken aloud.
+Keep it SHORT. Max 5-8 bullet points total. No long paragraphs.
 
-Recent Transcript:
+Transcript:
 $transcriptText""",
                 role = MessageRole.USER
             )
@@ -211,10 +211,9 @@ $transcriptText""",
 
         return sendMessage(
             messages = messages,
-            systemPrompt = """You are a real-time meeting assistant. When the user pauses their recording, 
-you quickly analyze what was discussed and provide immediate, concise insights. 
-Keep responses brief and spoken-word friendly since they will be read aloud via text-to-speech.
-Use simple language, avoid markdown formatting symbols like ** or ##, and use natural pauses."""
+            systemPrompt = """You are a concise Oracle technical assistant (OIC, VBCS, ERP, HCM, SCM, PL/SQL, REST).
+Give brief, actionable answers. Use short bullet points. No fluff. No repeating what was said.
+Provide actual steps, settings, and tips - not summaries."""
         )
     }
 

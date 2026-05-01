@@ -64,6 +64,7 @@ fun HomeScreen(
     val meetings by meetingRepository.meetings.collectAsState()
     val currentMeeting by meetingRepository.currentMeeting.collectAsState()
     var showNewMeetingDialog by remember { mutableStateOf(false) }
+    var showClearAllDialog by remember { mutableStateOf(false) }
     var meetingTitle by remember { mutableStateOf("") }
 
     Scaffold(
@@ -183,11 +184,13 @@ fun HomeScreen(
                         fontWeight = FontWeight.SemiBold
                     )
                     if (meetings.isNotEmpty()) {
-                        Text(
-                            text = "${meetings.size} total",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        TextButton(onClick = { showClearAllDialog = true }) {
+                            Text(
+                                text = "Clear All",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Red500
+                            )
+                        }
                     }
                 }
             }
@@ -254,6 +257,29 @@ fun HomeScreen(
             },
             dismissButton = {
                 TextButton(onClick = { showNewMeetingDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+    if (showClearAllDialog) {
+        AlertDialog(
+            onDismissRequest = { showClearAllDialog = false },
+            title = { Text("Clear All Meetings") },
+            text = { Text("This will permanently delete all meeting history. This cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        meetingRepository.clearAllMeetings()
+                        showClearAllDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Red500)
+                ) {
+                    Text("Clear All")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showClearAllDialog = false }) {
                     Text("Cancel")
                 }
             }

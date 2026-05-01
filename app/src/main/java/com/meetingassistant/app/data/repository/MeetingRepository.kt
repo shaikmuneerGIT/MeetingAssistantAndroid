@@ -57,6 +57,18 @@ class MeetingRepository(private val context: Context) {
         _currentMeeting.value = meeting.copy(transcript = meeting.transcript)
     }
 
+    /**
+     * Updates the text of the last transcript entry in the current meeting.
+     * Used to accumulate text within a single recording session.
+     */
+    fun updateLastTranscriptEntry(text: String) {
+        val meeting = _currentMeeting.value ?: return
+        if (meeting.transcript.isEmpty()) return
+        val lastEntry = meeting.transcript.last()
+        meeting.transcript[meeting.transcript.lastIndex] = lastEntry.copy(text = text)
+        _currentMeeting.value = meeting.copy(transcript = meeting.transcript)
+    }
+
     fun updateMeetingSummary(summary: String) {
         val meeting = _currentMeeting.value ?: return
         meeting.summary = summary
@@ -90,6 +102,12 @@ class MeetingRepository(private val context: Context) {
         val currentList = _meetings.value.toMutableList()
         currentList.removeAll { it.id == meeting.id }
         _meetings.value = currentList
+        saveMeetings()
+    }
+
+    fun clearAllMeetings() {
+        _meetings.value = emptyList()
+        _currentMeeting.value = null
         saveMeetings()
     }
 

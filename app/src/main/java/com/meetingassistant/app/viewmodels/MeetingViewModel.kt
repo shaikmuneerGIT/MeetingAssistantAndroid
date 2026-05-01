@@ -24,9 +24,6 @@ class MeetingViewModel(
     private val _isRecording = MutableStateFlow(false)
     val isRecording: StateFlow<Boolean> = _isRecording.asStateFlow()
 
-    private val _currentTranscript = MutableStateFlow("")
-    val currentTranscript: StateFlow<String> = _currentTranscript.asStateFlow()
-
     private val _meetingTimer = MutableStateFlow(0L)
     val meetingTimer: StateFlow<Long> = _meetingTimer.asStateFlow()
 
@@ -45,13 +42,34 @@ class MeetingViewModel(
     private val _autoAnalyzeOnPause = MutableStateFlow(true)
     val autoAnalyzeOnPause: StateFlow<Boolean> = _autoAnalyzeOnPause.asStateFlow()
 
+    /**
+     * The live session text being built while recording.
+     * This is NOT written to the transcript until the user manually pauses.
+     */
+    private val _sessionDisplayText = MutableStateFlow("")
+    val sessionDisplayText: StateFlow<String> = _sessionDisplayText.asStateFlow()
+
     val currentMeeting = meetingRepository.currentMeeting
     val isSpeaking = ttsService.isSpeaking
     val isProcessing = llmService.isProcessing
 
+    // Expose partial text from the speech service for live display
+    val partialText = speechService.partialText
+
     private var timerJob: Job? = null
     private var lastProcessedText = ""
-    private var lastAnalyzedTranscriptSize = 0
+
+    // Session buffer: accumulates text until user manually pauses
+    private val sessionText = StringBuilder()
+
+    init {
+        // Auto-start recording if there's an active meeting
+        val meeting = meetingRepository.currentMeeting.value
+        if (meeting != null && meeting.isActive) {
+            startTimer()
+            startRecording()
+        }
+    }
 
     fun startNewMeeting(title: String) {
         meetingRepository.startNewMeeting(title)
@@ -60,25 +78,36 @@ class MeetingViewModel(
     }
 
     fun startRecording() {
+        sessionText.clear()
+        _sessionDisplayText.value = ""
+        lastProcessedText = ""
+
         speechService.startListening(continuous = true) { text ->
-            _currentTranscript.value = text
             handleRecognizedText(text)
         }
         _isRecording.value = true
     }
 
+    /**
+     * Called ONLY when user manually taps pause.
+     * Finalizes the session text into a transcript entry.
+     */
     fun stopRecording() {
         speechService.stopListening()
         _isRecording.value = false
-        // Auto-analyze transcript when paused
-        if (_autoAnalyzeOnPause.value) {
+
+        // Commit the session text to the transcript
+        commitSessionToTranscript()
+
+        // Auto-analyze if API key is configured
+        if (_autoAnalyzeOnPause.value && llmService.apiKey.isNotEmpty()) {
             analyzeOnPause()
         }
     }
 
     fun toggleRecording() {
         if (_isRecording.value) stopRecording() else {
-            _pauseInsight.value = null  // Clear previous insight when resuming
+            _pauseInsight.value = null
             startRecording()
         }
     }
@@ -92,37 +121,45 @@ class MeetingViewModel(
     }
 
     /**
+     * Writes the accumulated session text as a single transcript entry.
+     */
+    private fun commitSessionToTranscript() {
+        val text = sessionText.toString().trim()
+        if (text.isNotEmpty()) {
+            meetingRepository.addTranscriptEntry(
+                text = text,
+                meetingTimer = _meetingTimer.value,
+                speaker = "User"
+            )
+        }
+        sessionText.clear()
+        _sessionDisplayText.value = ""
+    }
+
+    /**
      * Automatically triggered when recording is paused.
-     * Sends recent transcript to LLM and speaks the analysis aloud.
+     * Sends the full transcript to LLM for analysis every time.
      */
     private fun analyzeOnPause() {
         val meeting = meetingRepository.currentMeeting.value ?: return
         val transcript = meeting.transcript
 
-        // Only analyze if there's new content since last analysis
-        if (transcript.isEmpty() || transcript.size <= lastAnalyzedTranscriptSize) return
+        if (transcript.isEmpty()) return
 
         viewModelScope.launch {
             _isAnalyzing.value = true
             _pauseInsight.value = null
 
-            // Send only the new transcript entries since last analysis
-            val newEntries = transcript.drop(lastAnalyzedTranscriptSize)
-            val result = llmService.analyzeOnPause(newEntries)
+            try {
+                val result = llmService.analyzeOnPause(transcript)
 
-            result.onSuccess { insight ->
-                _pauseInsight.value = insight
-                lastAnalyzedTranscriptSize = transcript.size
-
-                // Auto-speak the insight
-                val autoSpeak = com.meetingassistant.app.MeetingAssistantApp.instance
-                    .getSharedPreferences("settings", android.content.Context.MODE_PRIVATE)
-                    .getBoolean("auto_speak_responses", true)
-                if (autoSpeak) {
-                    ttsService.speak(insight)
+                result.onSuccess { insight ->
+                    _pauseInsight.value = insight
+                }.onFailure { error ->
+                    _errorMessage.value = "Analysis failed: ${error.message}"
                 }
-            }.onFailure { error ->
-                _errorMessage.value = "Analysis failed: ${error.message}"
+            } catch (e: Exception) {
+                _errorMessage.value = "Analysis failed: ${e.message}"
             }
 
             _isAnalyzing.value = false
@@ -131,6 +168,10 @@ class MeetingViewModel(
 
     /** Manually trigger analysis of the full transcript */
     fun analyzeNow() {
+        if (llmService.apiKey.isEmpty()) {
+            _errorMessage.value = "No API key configured. Please add your OpenAI API key in Settings."
+            return
+        }
         val meeting = meetingRepository.currentMeeting.value ?: return
         if (meeting.transcript.isEmpty()) {
             _errorMessage.value = "No transcript to analyze."
@@ -138,25 +179,37 @@ class MeetingViewModel(
         }
         viewModelScope.launch {
             _isAnalyzing.value = true
-            val result = llmService.analyzeOnPause(meeting.transcript)
-            result.onSuccess { insight ->
-                _pauseInsight.value = insight
-                lastAnalyzedTranscriptSize = meeting.transcript.size
-                ttsService.speak(insight)
-            }.onFailure { error ->
-                _errorMessage.value = "Analysis failed: ${error.message}"
+            try {
+                val result = llmService.analyzeOnPause(meeting.transcript)
+                result.onSuccess { insight ->
+                    _pauseInsight.value = insight
+                }.onFailure { error ->
+                    _errorMessage.value = "Analysis failed: ${error.message}"
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Analysis failed: ${e.message}"
             }
             _isAnalyzing.value = false
         }
     }
 
     fun endMeeting() {
-        stopRecording()
+        // Stop recording without triggering auto-analyze
+        speechService.stopListening()
+        _isRecording.value = false
+
+        // Commit any remaining session text
+        commitSessionToTranscript()
+
         stopTimer()
         meetingRepository.endMeeting()
     }
 
     fun generateSummary() {
+        if (llmService.apiKey.isEmpty()) {
+            _errorMessage.value = "No API key configured. Please add your OpenAI API key in Settings."
+            return
+        }
         val meeting = meetingRepository.currentMeeting.value ?: return
         if (meeting.transcript.isEmpty()) {
             _errorMessage.value = "No transcript available to summarize."
@@ -165,16 +218,20 @@ class MeetingViewModel(
 
         viewModelScope.launch {
             _isSummarizing.value = true
-            val summaryResult = llmService.summarizeMeeting(meeting.transcript)
-            summaryResult.onSuccess { summary ->
-                meetingRepository.updateMeetingSummary(summary)
-            }.onFailure { error ->
-                _errorMessage.value = "Summary failed: ${error.message}"
-            }
+            try {
+                val summaryResult = llmService.summarizeMeeting(meeting.transcript)
+                summaryResult.onSuccess { summary ->
+                    meetingRepository.updateMeetingSummary(summary)
+                }.onFailure { error ->
+                    _errorMessage.value = "Summary failed: ${error.message}"
+                }
 
-            val actionsResult = llmService.extractActionItems(meeting.transcript)
-            actionsResult.onSuccess { items ->
-                meetingRepository.updateActionItems(items)
+                val actionsResult = llmService.extractActionItems(meeting.transcript)
+                actionsResult.onSuccess { items ->
+                    meetingRepository.updateActionItems(items)
+                }
+            } catch (e: Exception) {
+                _errorMessage.value = "Summary failed: ${e.message}"
             }
             _isSummarizing.value = false
         }
@@ -201,14 +258,16 @@ class MeetingViewModel(
         else String.format("%02d:%02d", m, s)
     }
 
+    /**
+     * Accumulates recognized text in the session buffer (NOT written to transcript yet).
+     * The text only goes to the transcript when the user manually pauses.
+     */
     private fun handleRecognizedText(text: String) {
         if (text != lastProcessedText && text.isNotBlank()) {
-            meetingRepository.addTranscriptEntry(
-                text = text,
-                meetingTimer = _meetingTimer.value,
-                speaker = "User"
-            )
             lastProcessedText = text
+            if (sessionText.isNotEmpty()) sessionText.append(" ")
+            sessionText.append(text)
+            _sessionDisplayText.value = sessionText.toString()
         }
     }
 
@@ -229,7 +288,8 @@ class MeetingViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        stopRecording()
+        speechService.stopListening()
+        _isRecording.value = false
         stopTimer()
     }
 }

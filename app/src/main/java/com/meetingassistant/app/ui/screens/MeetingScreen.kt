@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -43,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -51,7 +53,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import com.meetingassistant.app.data.repository.MeetingRepository
@@ -82,7 +88,6 @@ fun MeetingScreen(
 
     val currentMeeting by viewModel.currentMeeting.collectAsState()
     val isRecording by viewModel.isRecording.collectAsState()
-    val currentTranscript by viewModel.currentTranscript.collectAsState()
     val meetingTimer by viewModel.meetingTimer.collectAsState()
     val isSummarizing by viewModel.isSummarizing.collectAsState()
     val isSpeaking by viewModel.isSpeaking.collectAsState()
@@ -90,6 +95,16 @@ fun MeetingScreen(
     val isAnalyzing by viewModel.isAnalyzing.collectAsState()
     val pauseInsight by viewModel.pauseInsight.collectAsState()
     val autoAnalyze by viewModel.autoAnalyzeOnPause.collectAsState()
+    val partialText by viewModel.partialText.collectAsState()
+    val sessionDisplayText by viewModel.sessionDisplayText.collectAsState()
+
+    // Scroll state for the live transcript box
+    val transcriptScrollState = rememberScrollState()
+
+    // Auto-scroll the transcript box when new text arrives
+    LaunchedEffect(sessionDisplayText, partialText) {
+        transcriptScrollState.animateScrollTo(transcriptScrollState.maxValue)
+    }
 
     var showEndDialog by remember { mutableStateOf(false) }
     var showMenu by remember { mutableStateOf(false) }
@@ -189,12 +204,15 @@ fun MeetingScreen(
             }
         }
     ) { padding ->
+        val pageScrollState = rememberScrollState()
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .verticalScroll(rememberScrollState())
+                .verticalScroll(pageScrollState)
         ) {
+            // --- Status Bar ---
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -237,22 +255,64 @@ fun MeetingScreen(
                 }
             }
 
+            // --- Live Transcript Section (accumulated text + partial) ---
             Column(modifier = Modifier.padding(16.dp)) {
-                Text("Live Transcript", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Live Transcript", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    currentMeeting?.let { meeting ->
+                        if (meeting.transcript.isNotEmpty()) {
+                            Text(
+                                "${meeting.transcript.size} entries",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
                 Spacer(modifier = Modifier.height(8.dp))
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .heightIn(min = 120.dp, max = 300.dp)
                         .clip(RoundedCornerShape(12.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
                         .padding(16.dp)
+                        .verticalScroll(transcriptScrollState)
                 ) {
-                    Text(
-                        text = currentTranscript.ifEmpty { "Listening for speech..." },
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = if (currentTranscript.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant
-                        else MaterialTheme.colorScheme.onSurface
-                    )
+                    val hasText = sessionDisplayText.isNotEmpty() || partialText.isNotEmpty()
+                    if (hasText) {
+                        Text(
+                            text = buildAnnotatedString {
+                                // Current session text (being built while recording)
+                                if (sessionDisplayText.isNotEmpty()) {
+                                    withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurface)) {
+                                        append(sessionDisplayText)
+                                    }
+                                }
+                                // Partial text (currently being spoken - not yet finalized)
+                                if (partialText.isNotEmpty()) {
+                                    if (sessionDisplayText.isNotEmpty()) append(" ")
+                                    withStyle(SpanStyle(
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontStyle = FontStyle.Italic
+                                    )) {
+                                        append(partialText)
+                                    }
+                                }
+                            },
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    } else {
+                        Text(
+                            text = if (isRecording) "Listening for speech..." else "Tap the mic button to start recording",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
@@ -307,9 +367,11 @@ fun MeetingScreen(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(max = 400.dp)
                             .clip(RoundedCornerShape(12.dp))
                             .background(Purple500.copy(alpha = 0.07f))
                             .padding(14.dp)
+                            .verticalScroll(rememberScrollState())
                     ) {
                         Text(insight, style = MaterialTheme.typography.bodyMedium)
                     }
@@ -317,16 +379,11 @@ fun MeetingScreen(
             }
             // --- End AI Insight Panel ---
 
+            // --- Transcript History (timestamped entries) ---
             currentMeeting?.let { meeting ->
                 if (meeting.transcript.isNotEmpty()) {
                     Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Text("Transcript History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                            Text("${meeting.transcript.size} entries", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        Text("Transcript History", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                         Spacer(modifier = Modifier.height(8.dp))
 
                         meeting.transcript.forEach { entry ->

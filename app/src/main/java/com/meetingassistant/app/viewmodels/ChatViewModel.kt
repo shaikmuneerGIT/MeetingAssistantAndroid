@@ -64,9 +64,6 @@ class ChatViewModel(
             result.onSuccess { response ->
                 val assistantMessage = Message(content = response, role = MessageRole.ASSISTANT)
                 _messages.value = _messages.value + assistantMessage
-                if (autoSpeak) {
-                    ttsService.speak(response)
-                }
             }.onFailure { error ->
                 _errorMessage.value = error.message
             }

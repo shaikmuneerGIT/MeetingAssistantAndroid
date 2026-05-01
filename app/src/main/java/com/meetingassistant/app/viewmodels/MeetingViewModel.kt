@@ -138,7 +138,7 @@ class MeetingViewModel(
 
     /**
      * Automatically triggered when recording is paused.
-     * Sends the full transcript to LLM for analysis every time.
+     * Sends only the LATEST transcript entry to LLM for analysis.
      */
     private fun analyzeOnPause() {
         val meeting = meetingRepository.currentMeeting.value ?: return
@@ -146,12 +146,15 @@ class MeetingViewModel(
 
         if (transcript.isEmpty()) return
 
+        // Only analyze the last entry (what was just committed in this session)
+        val latestEntry = listOf(transcript.last())
+
         viewModelScope.launch {
             _isAnalyzing.value = true
             _pauseInsight.value = null
 
             try {
-                val result = llmService.analyzeOnPause(transcript)
+                val result = llmService.analyzeOnPause(latestEntry)
 
                 result.onSuccess { insight ->
                     _pauseInsight.value = insight

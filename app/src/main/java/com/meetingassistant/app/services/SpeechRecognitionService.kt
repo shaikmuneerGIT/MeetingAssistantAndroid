@@ -30,21 +30,29 @@ class SpeechRecognitionService(private val context: Context) {
 
     private var onResultCallback: ((String) -> Unit)? = null
     private var continuousMode = false
-    private var originalVolume = 0
+    private var savedMusicVolume = 0
+    private var savedNotifVolume = 0
+    private var savedSystemVolume = 0
 
     val isAvailable: Boolean
         get() = SpeechRecognizer.isRecognitionAvailable(context)
 
     private fun muteBeep() {
         try {
-            originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            savedMusicVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+            savedNotifVolume = audioManager.getStreamVolume(AudioManager.STREAM_NOTIFICATION)
+            savedSystemVolume = audioManager.getStreamVolume(AudioManager.STREAM_SYSTEM)
             audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, 0, 0)
+            audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, 0, 0)
+            audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, 0, 0)
         } catch (_: Exception) {}
     }
 
     private fun unmuteBeep() {
         try {
-            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, originalVolume, 0)
+            audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, savedMusicVolume, 0)
+            audioManager.setStreamVolume(AudioManager.STREAM_NOTIFICATION, savedNotifVolume, 0)
+            audioManager.setStreamVolume(AudioManager.STREAM_SYSTEM, savedSystemVolume, 0)
         } catch (_: Exception) {}
     }
 

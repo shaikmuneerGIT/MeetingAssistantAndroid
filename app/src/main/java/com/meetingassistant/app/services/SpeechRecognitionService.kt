@@ -46,6 +46,12 @@ class SpeechRecognitionService(private val context: Context) {
     private val forwardScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var forwardJobs = mutableListOf<Job>()
 
+    /** Job that completes when remaining Whisper audio has been transcribed after stop. */
+    val pendingFlushJob: Job?
+        get() = _pendingFlushJob
+
+    private var _pendingFlushJob: Job? = null
+
     val useWhisper: Boolean
         get() = prefs.getBoolean("use_whisper", false)
 
@@ -158,6 +164,8 @@ class SpeechRecognitionService(private val context: Context) {
 
     private fun stopWhisperListening() {
         whisperService.stopListening()
+        // Save the flush job BEFORE clearing state so callers can await it
+        _pendingFlushJob = whisperService.pendingFlushJob
         cancelForwardJobs()
         _isListening.value = false
         _partialText.value = ""

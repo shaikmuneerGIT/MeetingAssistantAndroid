@@ -96,12 +96,18 @@ class MeetingViewModel(
         speechService.stopListening()
         _isRecording.value = false
 
-        // Commit the session text to the transcript
-        commitSessionToTranscript()
+        // Wait for any pending Whisper transcription to finish before committing
+        val flushJob = speechService.pendingFlushJob
+        viewModelScope.launch {
+            flushJob?.join()
 
-        // Auto-analyze if API key is configured
-        if (_autoAnalyzeOnPause.value && llmService.apiKey.isNotEmpty()) {
-            analyzeOnPause()
+            // Commit the session text to the transcript
+            commitSessionToTranscript()
+
+            // Auto-analyze if API key is configured
+            if (_autoAnalyzeOnPause.value && llmService.apiKey.isNotEmpty()) {
+                analyzeOnPause()
+            }
         }
     }
 
@@ -138,7 +144,7 @@ class MeetingViewModel(
 
     /**
      * Automatically triggered when recording is paused.
-     * Sends only the LATEST transcript entry to LLM for analysis.
+     * Sends the latest transcript entry to LLM with full meeting context for accuracy.
      */
     private fun analyzeOnPause() {
         val meeting = meetingRepository.currentMeeting.value ?: return
@@ -146,7 +152,7 @@ class MeetingViewModel(
 
         if (transcript.isEmpty()) return
 
-        // Only analyze the last entry (what was just committed in this session)
+        // Focus on the latest entry but pass full transcript for context
         val latestEntry = listOf(transcript.last())
 
         viewModelScope.launch {
@@ -154,7 +160,10 @@ class MeetingViewModel(
             _pauseInsight.value = null
 
             try {
-                val result = llmService.analyzeOnPause(latestEntry)
+                val result = llmService.analyzeOnPause(
+                    latestTranscript = latestEntry,
+                    fullTranscript = transcript.toList()
+                )
 
                 result.onSuccess { insight ->
                     _pauseInsight.value = insight
@@ -183,7 +192,10 @@ class MeetingViewModel(
         viewModelScope.launch {
             _isAnalyzing.value = true
             try {
-                val result = llmService.analyzeOnPause(meeting.transcript)
+                val result = llmService.analyzeOnPause(
+                    latestTranscript = meeting.transcript.toList(),
+                    fullTranscript = meeting.transcript.toList()
+                )
                 result.onSuccess { insight ->
                     _pauseInsight.value = insight
                 }.onFailure { error ->

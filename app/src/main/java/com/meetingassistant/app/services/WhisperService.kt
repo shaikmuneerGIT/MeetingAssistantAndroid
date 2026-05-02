@@ -11,6 +11,7 @@ import com.google.gson.Gson
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,6 +78,10 @@ class WhisperService(private val context: Context) {
 
     private var onResultCallback: ((String) -> Unit)? = null
     private var continuousMode = false
+
+    /** Job that completes when the remaining audio after stop has been transcribed. */
+    var pendingFlushJob: Job? = null
+        private set
 
     // Accumulated PCM data for the current chunk
     private val audioChunks = mutableListOf<ByteArray>()
@@ -154,7 +159,9 @@ class WhisperService(private val context: Context) {
         if (wasListening && audioChunks.isNotEmpty()) {
             val remaining = audioChunks.toList()
             audioChunks.clear()
-            scope.launch { transcribeAndDeliver(remaining) }
+            pendingFlushJob = scope.launch { transcribeAndDeliver(remaining) }
+        } else {
+            pendingFlushJob = null
         }
     }
 

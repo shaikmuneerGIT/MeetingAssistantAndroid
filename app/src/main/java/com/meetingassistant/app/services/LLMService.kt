@@ -80,7 +80,8 @@ class LLMService(private val context: Context) {
     suspend fun sendMessage(
         messages: List<Message>,
         systemPrompt: String? = null,
-        meetingContext: String? = null
+        meetingContext: String? = null,
+        temperature: Double = 0.7
     ): Result<String> = withContext(Dispatchers.IO) {
         if (apiKey.isEmpty()) {
             return@withContext Result.failure(Exception("No API key configured. Please add your OpenAI API key in Settings."))
@@ -99,7 +100,8 @@ class LLMService(private val context: Context) {
 
             val request = ChatRequest(
                 model = model,
-                messages = chatMessages
+                messages = chatMessages,
+                temperature = temperature
             )
 
             val json = gson.toJson(request)
@@ -179,54 +181,168 @@ class LLMService(private val context: Context) {
         }
     }
 
+    // ---- Speech correction & knowledge base ----
+
+    /**
+     * Common speech recognition errors mapped to correct terms.
+     * Speech-to-text often mishears technical abbreviations.
+     */
+    private val speechCorrections = mapOf(
+        "OAC" to "OIC",
+        "O.A.C" to "OIC",
+        "O A C" to "OIC",
+        "oh I see" to "OIC",
+        "oh icy" to "OIC",
+        "VBC" to "VBCS",
+        "V.B.C.S" to "VBCS",
+        "V B C S" to "VBCS",
+        "visual builder" to "VBCS",
+        "E.R.P" to "ERP",
+        "E R P" to "ERP",
+        "HCN" to "HCM",
+        "H.C.M" to "HCM",
+        "SCN" to "SCM",
+        "S.C.M" to "SCM",
+        "PL sequel" to "PL/SQL",
+        "P.L. SQL" to "PL/SQL",
+        "BA reports" to "BI reports",
+        "BA report" to "BI report",
+        "FBDA" to "FBDI",
+        "F.B.D.A" to "FBDI",
+        "F B D A" to "FBDI"
+    )
+
+    /**
+     * Map of known technology topics to their documentation files in assets.
+     */
+    private val topicDocs = mapOf(
+        "OIC" to "docs/OIC-Complete-Guide.md",
+        "VBCS" to "docs/VBCS-Complete-Guide.md",
+        "ERP" to "docs/ERP-Complete-Guide.md"
+    )
+
+    /**
+     * Corrects common speech recognition errors using the known terms map.
+     */
+    private fun correctSpeechErrors(text: String): String {
+        var corrected = text
+        for ((wrong, right) in speechCorrections) {
+            corrected = corrected.replace(wrong, right, ignoreCase = true)
+        }
+        return corrected
+    }
+
+    /**
+     * Detects which known topics are mentioned in the text.
+     */
+    private fun detectTopics(text: String): Set<String> {
+        val upper = text.uppercase()
+        return topicDocs.keys.filter { upper.contains(it) }.toSet()
+    }
+
+    /**
+     * Loads documentation content from bundled assets for the given topics.
+     * Truncates large docs to keep token usage reasonable.
+     */
+    private fun loadDocsForTopics(topics: Set<String>): String {
+        if (topics.isEmpty()) return ""
+        val sb = StringBuilder()
+        for (topic in topics.take(2)) {
+            val docPath = topicDocs[topic] ?: continue
+            try {
+                val content = context.assets.open(docPath).bufferedReader().readText()
+                val truncated = if (content.length > 25000) {
+                    content.take(25000) + "\n...[document truncated for length]"
+                } else content
+                sb.appendLine("\n\n=== Reference Knowledge Base: $topic ===\n")
+                sb.appendLine(truncated)
+            } catch (_: Exception) {
+                // Doc file not found in assets, skip
+            }
+        }
+        return sb.toString()
+    }
+
     /**
      * Quick analysis triggered automatically when recording is paused.
-     * Provides concise technical guidance on topics discussed.
+     * Corrects speech errors, detects topics, loads relevant docs,
+     * and provides precise answers from the knowledge base.
+     *
+     * @param latestTranscript The most recent transcript segment to focus on
+     * @param fullTranscript   The full meeting transcript for context (optional)
      */
-    suspend fun analyzeOnPause(transcript: List<TranscriptEntry>): Result<String> {
-        if (transcript.isEmpty()) {
+    suspend fun analyzeOnPause(
+        latestTranscript: List<TranscriptEntry>,
+        fullTranscript: List<TranscriptEntry>? = null
+    ): Result<String> {
+        if (latestTranscript.isEmpty()) {
             return Result.failure(Exception("No transcript to analyze."))
         }
 
-        val transcriptText = transcript.joinToString("\n") { entry ->
+        // Build and correct the transcript text
+        val rawLatestText = latestTranscript.joinToString("\n") { entry ->
             "[${entry.formattedTimestamp}] ${entry.speaker ?: "Speaker"}: ${entry.text}"
         }
+        val latestText = correctSpeechErrors(rawLatestText)
+
+        // Build context from earlier transcript if available
+        val contextBlock = if (!fullTranscript.isNullOrEmpty() && fullTranscript.size > latestTranscript.size) {
+            val earlier = fullTranscript.dropLast(latestTranscript.size).takeLast(30)
+            if (earlier.isNotEmpty()) {
+                val contextText = earlier.joinToString("\n") { entry ->
+                    "[${entry.formattedTimestamp}] ${entry.speaker ?: "Speaker"}: ${entry.text}"
+                }
+                "\n\nEarlier context from this meeting:\n${correctSpeechErrors(contextText)}"
+            } else ""
+        } else ""
+
+        // Detect topics and load relevant documentation
+        val allText = latestText + contextBlock
+        val topics = detectTopics(allText)
+        val docsContent = loadDocsForTopics(topics)
+
+        val docsInstruction = if (docsContent.isNotEmpty()) {
+            "\n\nIMPORTANT: Use the Reference Knowledge Base provided below to answer questions. Give answers based on this documentation.\n$docsContent"
+        } else ""
 
         val messages = listOf(
             Message(
-                content = """Analyze this meeting transcript and give SHORT, ACTIONABLE technical guidance.
+                content = """Here is what was just spoken in the meeting:
 
-For each topic mentioned, provide:
-- Key steps (numbered, brief)
-- Important config/settings (if applicable)
-- One best practice tip
+$latestText$contextBlock$docsInstruction
 
-Keep it SHORT. Max 5-8 bullet points total. No long paragraphs.
-
-Transcript:
-$transcriptText""",
+Instructions:
+1. If any QUESTIONS were asked (e.g. "What is X?", "How to do Y?", "Explain Z"), ANSWER each question directly and accurately. If a Reference Knowledge Base is provided above, use it as your primary source.
+2. If specific topics or problems were discussed, provide precise, relevant information for those exact topics.
+3. Do NOT add information about topics that were NOT mentioned in the transcript.
+4. Do NOT give generic advice or unrelated suggestions beyond what was asked.
+5. Keep answers concise but complete - use short bullet points.
+6. Only say "Not enough context" if the speech is completely unintelligible or garbled nonsense - NOT for short or simple questions.""",
                 role = MessageRole.USER
             )
         )
 
         return sendMessage(
             messages = messages,
-            systemPrompt = """You are a concise Oracle technical assistant (OIC, VBCS, ERP, HCM, SCM, PL/SQL, REST).
-Give brief, actionable answers. Use short bullet points. No fluff. No repeating what was said.
-Provide actual steps, settings, and tips - not summaries."""
+            systemPrompt = """You are a highly specialized Oracle Cloud technical assistant. You MUST ONLY answer questions related to Oracle ERP, Oracle Integration Cloud (OIC), and Visual Builder Cloud Service (VBCS).
+
+Rules:
+- FIRST correct any speech recognition errors. Common errors: OAC=OIC, VBC=VBCS, HCN=HCM, SCN=SCM, BA reports=BI reports, FBDA=FBDI.
+- If a question is about ERP, OIC, or VBCS, ALWAYS answer it accurately using the Reference Knowledge Base first, then your general knowledge.
+- If a question is NOT related to Oracle ERP, OIC, or VBCS, you MUST politely decline to answer and state that you are specialized only in Oracle ERP, OIC, and VBCS.
+- Stay strictly on-topic.
+- Be concise but informative. Use bullet points.""",
+            temperature = 0.3
         )
     }
 
     private fun buildSystemPrompt(customPrompt: String?, meetingContext: String?): String {
         var prompt = customPrompt ?: """
-            You are an intelligent meeting assistant. Your role is to:
-            1. Answer questions about the ongoing meeting discussion
-            2. Provide summaries when asked
-            3. Help identify action items and key decisions
-            4. Offer relevant suggestions and insights
-            5. Keep responses concise and professional
-            
-            Always be helpful, accurate, and focused on the meeting context.
+            You are a specialized Oracle Cloud meeting assistant. Your role is exclusively focused on Oracle ERP, OIC, and VBCS.
+            1. Answer questions ONLY if they relate to Oracle ERP, OIC, or VBCS.
+            2. If asked about unrelated topics, politely state that you only support Oracle ERP, OIC, and VBCS.
+            3. Provide summaries and action items focused on these technical areas.
+            4. Keep responses concise, professional, and directly useful.
         """.trimIndent()
 
         if (!meetingContext.isNullOrEmpty()) {

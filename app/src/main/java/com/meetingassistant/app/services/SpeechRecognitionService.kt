@@ -7,9 +7,14 @@ import android.os.Bundle
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 class SpeechRecognitionService(private val context: Context) {
     private var speechRecognizer: SpeechRecognizer? = null
@@ -34,8 +39,18 @@ class SpeechRecognitionService(private val context: Context) {
     private var savedNotifVolume = 0
     private var savedSystemVolume = 0
 
+    // ---- Whisper integration ----
+    private val whisperService = WhisperService(context)
+    private val prefs get() = context.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private var usingWhisper = false
+    private val forwardScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private var forwardJobs = mutableListOf<Job>()
+
+    val useWhisper: Boolean
+        get() = prefs.getBoolean("use_whisper", false)
+
     val isAvailable: Boolean
-        get() = SpeechRecognizer.isRecognitionAvailable(context)
+        get() = if (useWhisper) true else SpeechRecognizer.isRecognitionAvailable(context)
 
     private fun muteBeep() {
         try {
@@ -57,6 +72,11 @@ class SpeechRecognitionService(private val context: Context) {
     }
 
     fun startListening(continuous: Boolean = true, onResult: (String) -> Unit) {
+        if (useWhisper) {
+            startWhisperListening(continuous, onResult)
+            return
+        }
+
         if (!isAvailable) {
             _error.value = "Speech recognition is not available on this device."
             return
@@ -66,6 +86,7 @@ class SpeechRecognitionService(private val context: Context) {
         continuousMode = continuous
         _error.value = null
         _partialText.value = ""
+        usingWhisper = false
 
         muteBeep()
 
@@ -90,6 +111,11 @@ class SpeechRecognitionService(private val context: Context) {
     }
 
     fun stopListening() {
+        if (usingWhisper) {
+            stopWhisperListening()
+            return
+        }
+
         muteBeep()
         continuousMode = false
         speechRecognizer?.stopListening()
@@ -103,7 +129,47 @@ class SpeechRecognitionService(private val context: Context) {
 
     fun destroy() {
         stopListening()
+        whisperService.destroy()
+        cancelForwardJobs()
     }
+
+    // ---- Whisper delegation ----
+
+    private fun startWhisperListening(continuous: Boolean, onResult: (String) -> Unit) {
+        usingWhisper = true
+        cancelForwardJobs()
+
+        whisperService.startListening(continuous) { text ->
+            _recognizedText.value = text
+            onResult(text)
+        }
+
+        // Forward Whisper state flows to our own flows
+        forwardJobs.add(forwardScope.launch {
+            whisperService.isListening.collect { _isListening.value = it }
+        })
+        forwardJobs.add(forwardScope.launch {
+            whisperService.partialText.collect { _partialText.value = it }
+        })
+        forwardJobs.add(forwardScope.launch {
+            whisperService.error.collect { _error.value = it }
+        })
+    }
+
+    private fun stopWhisperListening() {
+        whisperService.stopListening()
+        cancelForwardJobs()
+        _isListening.value = false
+        _partialText.value = ""
+        usingWhisper = false
+    }
+
+    private fun cancelForwardJobs() {
+        forwardJobs.forEach { it.cancel() }
+        forwardJobs.clear()
+    }
+
+    // ---- Android SpeechRecognizer listener ----
 
     private fun createListener(): RecognitionListener {
         return object : RecognitionListener {

@@ -66,6 +66,7 @@ fun SettingsScreen(
 
     val apiKey by viewModel.apiKey.collectAsState()
     val selectedModel by viewModel.selectedModel.collectAsState()
+    val useWhisper by viewModel.useWhisper.collectAsState()
     val autoSpeak by viewModel.autoSpeakResponses.collectAsState()
     val speechRate by viewModel.speechRate.collectAsState()
     val speechPitch by viewModel.speechPitch.collectAsState()
@@ -171,6 +172,31 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+            SectionHeader("Speech Recognition")
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("Use OpenAI Whisper", style = MaterialTheme.typography.bodyMedium)
+                            Text(
+                                "Higher accuracy speech-to-text via Whisper API. Uses your OpenAI key.",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Switch(checked = useWhisper, onCheckedChange = { viewModel.updateUseWhisper(it) })
+                    }
                 }
             }
 

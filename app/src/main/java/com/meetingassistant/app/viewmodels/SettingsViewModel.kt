@@ -22,6 +22,9 @@ class SettingsViewModel(
     private val _selectedModel = MutableStateFlow(llmService.model)
     val selectedModel: StateFlow<String> = _selectedModel.asStateFlow()
 
+    private val _useWhisper = MutableStateFlow(prefs.getBoolean("use_whisper", false))
+    val useWhisper: StateFlow<Boolean> = _useWhisper.asStateFlow()
+
     private val _autoSpeakResponses = MutableStateFlow(prefs.getBoolean("auto_speak_responses", true))
     val autoSpeakResponses: StateFlow<Boolean> = _autoSpeakResponses.asStateFlow()
 
@@ -41,6 +44,7 @@ class SettingsViewModel(
 
     fun updateApiKey(key: String) { _apiKey.value = key }
     fun updateModel(model: String) { _selectedModel.value = model }
+    fun updateUseWhisper(enabled: Boolean) { _useWhisper.value = enabled }
     fun updateAutoSpeak(enabled: Boolean) { _autoSpeakResponses.value = enabled }
     fun updateSpeechRate(rate: Float) { _speechRate.value = rate }
     fun updateSpeechPitch(pitch: Float) { _speechPitch.value = pitch }
@@ -52,6 +56,7 @@ class SettingsViewModel(
         ttsService.pitch = _speechPitch.value
 
         prefs.edit()
+            .putBoolean("use_whisper", _useWhisper.value)
             .putBoolean("auto_speak_responses", _autoSpeakResponses.value)
             .putFloat("speech_rate", _speechRate.value)
             .putFloat("speech_pitch", _speechPitch.value)
@@ -69,6 +74,7 @@ class SettingsViewModel(
         context.getSharedPreferences("meetings", Context.MODE_PRIVATE).edit().clear().apply()
         _apiKey.value = ""
         _selectedModel.value = "gpt-4o-mini"
+        _useWhisper.value = false
         _autoSpeakResponses.value = true
         _speechRate.value = 1.0f
         _speechPitch.value = 1.0f

@@ -2,7 +2,7 @@
 
 **Project:** UI / E2E test automation for **CDUI** (Customer Data User Interface), Dell MDG
 **Author / owner:** Shaik Muneer (E2E Testing)
-**Snapshot date:** 2026-09-06 (project started 2026-08-19)
+**Snapshot date:** 2026-09-17 (project started 2026-08-19)
 **Local workspace:** `C:\repos\CDUI` (framework in `C:\repos\CDUI\CDUI_UIAutomation`)
 **Sister project:** `C:\repos\cidm_cilms_apiautomation\CIDM_APIAutomation` (API automation, referenced in-process)
 
@@ -262,6 +262,14 @@ Facts and traps:
   `--auth-schemes=basic,digest --auth-server-allowlist=_`), `AuthHelper.LastLoginUsedOktaForm`, and the
   preflight fails when the greeted name equals `Environment.UserName`. Wipe `CDUI_ARTIFACTS_DIR` before
   a service-account run and set `CDUI_TRACE=false` (traces record the typed password).
+- **CDUI side confirmed (2026-09-14, Priyanka Das):** `svc_npe2etesting@amer.dell.com` is **Activated in
+  CDUI G4 with role `Dell_Team_Member`** (Updated By: UnknownRequester) - enough for the 96 read-only P1
+  cases, not for MDG-lead approval flows. This is the *same* account as the API team's `SMTP_USER`
+  (`cidm_cilms_apiautomation/CIDM_APIAutomation/launchSettings.json`), so the CDUI role was never the
+  blocker: **Okta is**. Also confirmed there is no other CDUI service/QA account to reuse. Still
+  outstanding with Okta/IT: interactive sign-in enabled for the CDUI G4 OIDC app, password authenticator
+  allowed, MFA/device-trust exemption. Preference is a *dedicated* CDUI test account so a lockout cannot
+  break the API team's report e-mails.
 - Pipeline itself still blocked: the workspace is not a git repo, no Dell-network GitLab runner is
   assigned, Docker is not installed locally. Linux options are documented in PIPELINE.md (Okta form
   login with an MFA-exempt service account; Kerberos keytab; pre-seeded storageState for demos only).
@@ -368,7 +376,8 @@ gives the bare method name (normalise or every lookup misses); the script falls 
 | Multi-site party | P15804430482 (US, 5 sites) |
 | Converted DCN ↔ Party (US) | DCN `640369434444` / BUID `11` / P15798066869 (KSW SOLUTIONS). DCN triple format `640369434444-11-10000001234577212`. This party has **no** APID/UCID mappings |
 | UCID ↔ Party | UCID `1003299042` ↔ P12836187399 (IS_PARTY_CONVERTED=C). Canonical source: `SELECT * FROM CPD_PARTY.T_UCID_CPD_DATA_MIGRATION WHERE ucid='…'` on **G4**. Sample UCID 1000000008 is not in G4 |
-| APID ↔ Party (team-supplied 08/25) | `CDUI_TEST_APID=3614118606` / P15797091770; others 3614110623/P15795479753, 3614119289/P15802039218, 2658464064/P12777692118, 3597188700/P15780815173; P12310765294 has three APIDs 3614105990 / 3614105978 / 3614104540 (many-to-one verified) |
+| APID ↔ Party (team-supplied 08/25) | `CDUI_TEST_APID=3614118606` / P15797091770 (Parry Estates Coffee; Sales Relationship Company Name is **COSTA RICAN GOLD COFFEE COMPANY** — the two name columns legitimately differ); others 3614110623/P15795479753 (Farmer Bros. Co.), 3614119289/P15802039218 (Reindeers LLC), 2658464064/P12777692118 (Empower Technologies Informatica Ltda), 3597188700/P15780815173 (Jeff london) |
+| APID many-to-one (re-verified 2026-09-16) | P12310765294 (McKesson Corporation) now returns **four** APIDs: 3614105990 / 3614105978 / 3614104540 / **3398678524**. Every APID of one party repeats that party's company name — expected, not a data bug. More multi-APID G4 parties harvested by reverse lookup: P12776973424 (23), P12777425187 Td Synnex Corporation (16), P12777768802 IBM (12), P12776821614 (9), P12777543481 NTT Data (8), P12782170893 (8), P12778362685 World Wide Technology (6), P12777472915 (6), P12775142375 Zones, LLC (4), P12775140817 Unicom Engineering (3) |
 | Location IDs (team-supplied 08/25) | 18204218062, 18204217959 (11-digit numerics; not party site ids; Party Search returns nothing for them) |
 | Partner Track ID | unknown; the field gives no feedback at all for unknown values (open dev question) |
 | Known ticket | TKT1025348 (used by ticket filter tests); E2E-created TKT1025406, TKT1025407 |
@@ -387,6 +396,18 @@ JIRA access for defect work: `python scripts/defect_query.py --keys …` in the 
 launchSettings `JIRA_BASE_URL` + `JIRA_PAT_TOKEN`, `verify=False`). Descriptions on the 510-519 batch
 were all empty; the real steps live in attachments (`/rest/api/2/issue/KEY?fields=attachment`, then GET
 `content`) and the svc_prdema EMA comment. Always read attachments before judging a defect.
+
+Filing defects from the harness (checked 2026-09-17, not wired up yet - deliberately human-in-the-loop):
+the PAT is Muneer's own account and has CREATE_ISSUES / CREATE_ATTACHMENTS / ADD_COMMENTS / EDIT_ISSUES on
+MAVCDUI (project name `CDUI_MVK`). Issue type **Defect** (id 10107) requires only `summary` and Sub-Program
+(`customfield_10700` = `MAV-CUST`); to match Kiran's tickets also set Application = Customer_Data_User_Interface,
+Type, Severity (Sev 3), Priority (P4), Found-in Environment = SIT, Found-in Sub-Environment = GE4,
+Found During = E2E Regression, Found During Release / Release Target (e.g. FY27FW36-1002), Epic Link MAV-605430,
+Repro Steps (custom field ids resolve via `/rest/api/2/field`). Field metadata comes from
+`/rest/api/2/issue/createmeta/MAVCDUI/issuetypes/{id}` - the old `createmeta?projectKeys=` form returns 404
+on this Jira. Attach the failure screenshot via `POST /rest/api/2/issue/{key}/attachments` with
+`X-Atlassian-Token: no-check`. Rule if it is ever automated: only the `other` bucket, failed on two
+consecutive runs, and no open issue already labelled with the test name.
 
 ---
 
@@ -440,7 +461,7 @@ line; Access Request and the Billing Account tab had no tests). It now guards al
 | 514 | Sites tab | Valid, narrower | Site Name + Identifying Site filters ignored; Site ID works on the same grid | Still reproduces (Jira "Waiting to Deploy", fix not in G4) |
 | 515 | Billing Account tab | Valid, narrower | Site Name filter ignored | Still reproduces |
 | 516 | Contacts tab | Valid, clearest | Site Name filter ignored (8 → 8 rows with "Ramesh") | Still reproduces |
-| 517 | ODW | Valid | Reset Form clears inputs but leaves "Party not found" banner (click Reset immediately) | Still reproduces |
+| 517 | ODW | Valid | Reset Form clears inputs but leaves "Party not found" banner (click Reset immediately) | Still reproduces (guard red again 2026-09-17 15:52) although Jira moved it to **Complete** - fix not in G4 yet |
 | 518 | Party Search | Valid, exact | No required markers until Search; then "Company Name is required" / "Country is required" | Still reproduces |
 | 519 | ODW | Valid | "Party not found" banner self-hides ~28s | Still reproduces |
 
@@ -489,6 +510,10 @@ initially wrong (recorded not-reproduced) because of the banner-detection trap i
 | 2026-09-01 | Guard-flip sweep | 512, 513 fixed; 510/511/514-519 still reproduce | Traits removed for 512/513 |
 | 2026-09-04 | Per-MFE runs (headless) | Homepage 12/12; Ticket 7/10; Create Ticket 31/38; Party Search 27/30; ODW 17/38 (merged trx); Account Search 0/3 | Consent-modal mass-failure trap found and fixed (24/25 timeouts → 17s/8s passes); service-account SSO investigation ended blocked on Okta |
 | 2026-09-06 | Ticket MFE re-run | 8/10 | Failed: `Grid_Shows_The_MDG_Requested_Columns`, `Every_Key_Ticket_Filter_Finds_The_Known_Ticket` (repro still failing, Shouldly "failures"); `Navigate_To_CDUI_Landing_Page` hit the session-refresh flake. Under investigation |
+| 2026-09-09 | P1 regression, six MFEs headless (after the SSO-hop + filter fixes) | 112 run / 99 pass / 13 fail = **88%** (was 83% on 08-27). Homepage 12/12, Ticket **10/10** (7/10 on 09-04), Create Ticket 33/38, Party Search 27/30, ODW 17/19, Account Search 0/3 | known-defect 5 (510 Castle, 511, 517, 518, 519); **514/515/516 guards green for the first time - verify by hand**; mfe-stall 4 (Account Search x3, multi-site party details); other 4, all environmental: the CustomerGateway identifier lookup errored/hung that evening (3 Create Ticket tests) and the Party Search MFE re-rendered mid-assert (Reset test, now auto-waits). Report: `TestArtifacts/CDUI_Regression_Report.html`; 09-04 copy kept as `CDUI_Regression_Report_2026-09-04.html` |
+| 2026-09-08/09 | Demo slice built (`scripts/run_demo.ps1`, skill `cdui-demo`) | 6 checks, 5 pass / 1 fail by design (517 guard), 1 min 33 s headed | Trace-proven **silent SSO hop** on the first navigation of a run (see §12) fixed in `BasePage.GotoAsync`; traces now kept only for failures (3.04 GB pruned); passing Create Ticket case leaves an evidence screenshot that the report shows |
+| 2026-09-15 | GitLab Windows runner (`cdui-win`) | P1 job ran unattended: cold profile, headless, Desktop SSO, no human interaction | `.gitlab-ci.yml` now has `win-auth-preflight` → `win-build` → `win-p1-regression` (90 min timeout) + `win-nightly`; Linux/Docker jobs only when `CDUI_LINUX_RUNNER=true` |
+| 2026-09-17 | Leadership demo prepared; demo slice re-verified headed at 15:52 | 6 checks, 5 pass / 1 fail (517 guard), **2 min 02 s** incl. build; known-defect=1, mfe-stall=0, other=0 | Deck `DEMO_DECK.html` (2 slides, non-technical: 6 screens · 120 checks · **8–12 h manual → ~30 min automated** · 0 data changes; six benefits; "5 green, 1 red on purpose"). `DEMO_DECK_FULL.html` = 16-slide technical backup. The 8–12 h and ~30 min figures are Muneer's for the leadership audience; measured full read-only run remains ~50 min (§1, §9) |
 
 Report conventions: `TEST_REPORT.md` at repo root (full-run narrative), `TEAMS_MESSAGE.md` (dev-facing
 summary), `DEFECT_VALIDATION_510-519.md`, `DEMO_NOTES.md/.html` (manager demo), `AUTOMATION_OVERVIEW.html`
@@ -497,6 +522,13 @@ summary), `DEFECT_VALIDATION_510-519.md`, `DEMO_NOTES.md/.html` (manager demo), 
 ---
 
 ## 12. Hard-won lessons and gotchas (do not relearn these)
+
+- **Silent SSO hop on the first navigation of a run (2026-09-08, trace-proven).** With a saved session that needs a refresh (always after `CDUI_CLEAR_CACHE=true`) the first `GotoAsync` boots the app, flashes the shell for ~1 s, then hops `/?redirect-url=…` → OIDC authorize (redirect_uri=/review-list) → Okta agentless DSSO → token redirect, 15-30 s during which the page is blank or says "Authentication in Progress". Any no-wait check straight after navigation fails falsely and the next test passes, so it looks like a flaky first test. `BasePage.GotoAsync` now waits for the side nav to be back and stable and re-requests the route once if it landed elsewhere; the first test of a run still takes ~35 s.
+- **A reload during the SSO hop aborts the token redirect** and strands the app on its own "Login Authentication Failed" page (Retry button) - every later navigation then times out (2026-09-09, 4 min 24 s on one test). The Create Ticket / Account Search / guard helpers that navigate directly now call `BasePage.SettleAfterSsoHopAsync` before any reload retry, tolerate an aborted reload, and the settle clicks Retry when that page is shown.
+- **Ticket List filter typing:** the DDS filter box drops keystrokes while the grid re-renders (typed `TKT1025580`, box showed `T1025580`) and the old rows stay readable under the loading overlay, so a working filter looked ignored. `TicketListPage.FilterByAsync` / `FilterAndGetTicketsAsync` now type with real keystrokes, re-type if the value differs, and wait for the overlay to clear and the row set to change and hold still.
+- **vstest filters and theory rows.** `FullyQualifiedName~` does not match a theory row's arguments; use `DisplayName~Method&DisplayName~arg` (e.g. `DisplayName~Valid_Identifier_Enables_Submit&DisplayName~Party ID`).
+- **Traces:** kept only when the test failed (or `CDUI_TRACE_KEEP_ALL=true`) since 2026-09-09; before that every test left a 1-3 MB zip and the folder reached 3.6 GB. Passing moments worth showing use `EvidenceScreenshotAsync` (EVIDENCE_*.png), which the report renders under "Evidence from passing checks".
+- **PowerShell 5.1 redirects write UTF-16.** `dotnet test … > file 2>&1` in PS 5.1 produces a UTF-16 log that grep/python cannot read; `Tee-Object -Variable` then `Out-File -Encoding utf8`, or run it through `cmd /c`.
 
 **Verification discipline**
 - **Three reported "defects" were harness bugs (08/25):** ticket search "broken" (rows counted via
@@ -567,11 +599,25 @@ summary), `DEFECT_VALIDATION_510-519.md`, `DEMO_NOTES.md/.html` (manager demo), 
 
 **ODW ID Translation**
 - Three bidirectional bridges with their own tables: DCN↔Party (DCN/BUID/Address ID ↔ Party Number/Party
-  Site ID), APID↔Party (ARD bridge; grid: APID, Sales Relationship Company Name, Partner Track ID,
-  Account Status…), UCID↔Party (grid: UCID Number/Name, Party Site ID, Party Contact Id, MAP). Fresh CPDn
+  Site ID), APID↔Party (ARD bridge; forward grid: APID, Sales Relationship Company Name, Party Number,
+  Party Name, Partner Track ID, Account Status, Account Deactivation Reason, Partner Track Status,
+  Partner Track Deactivation Reason, Relationship Status — the reverse grid drops the two Partner Track
+  status columns and collapses them into one Deactivation Reason), UCID↔Party (grid: UCID Number/Name,
+  Party Site ID, Party Contact Id, MAP). Fresh CPDn
   customers are in none of them (converted parties only, confirmed by team). Harvest identifiers by
   reverse-looking-up a converted party in each type. All three bridges have live US round-trip coverage;
   EMEA/APJ/LATAM pairs still needed.
+- **Sales Relationship Company Name is ARD-side data and is not in CPD_PARTY** — a full scan of
+  `all_objects`/`all_tab_columns` on G4 found no APID↔company bridge in the party schema, so that column
+  cannot be verified in our Oracle connection; only the grid's *Party Name* can (it matches
+  `CPD_PARTY.ORG_PARTY.NAME` for all 11 parties checked 2026-09-16). The nearest party-side table is
+  `CPD_PARTY.T_AFFINITY_ACCOUNT_CPD_DATA_MIGRATION` (ACCOUNT_ID ↔ NEWCO_PARTY_ID), which holds only
+  2658464064 of our APIDs, but its multi-ACCOUNT_ID parties are good candidates to reverse-probe.
+- Open question for ARD/MDG: the column is populated unevenly. Reverse (Party→APID) lookups returned
+  `-` for **every** row in all 11 parties probed, and forward lookups returned `-` for 3398678524,
+  3614105990, 3608186516 and 3595930286 while their sibling APIDs on the same party carry a name.
+  Tooling: `Tests/Discovery/ApidBridgeDbProbe.cs` (DB) and `Tests/Discovery/ApidGridProbe.cs` (UI,
+  `CDUI_PROBE_APIDS=a,b,c` to re-probe a subset).
 
 **Build / runtime**
 - Delete the referenced project's old xunit adapter after build (csproj target does it); mirror
@@ -590,6 +636,7 @@ summary), `DEFECT_VALIDATION_510-519.md`, `DEMO_NOTES.md/.html` (manager demo), 
 | Kiran Kumar Avsn | Manual E2E; raised MAVCDUI-510..519 |
 | Srikanth Gaddam, Manikarao Kulkarni | MDG team |
 | Eduardo Dutra | Dev contact; answered the relationship auto-cancel question (PCG owns relationship tabs) |
+| Priyanka Das | CDUI access/admin contact; confirmed the service account's G4 activation + role (2026-09-14) |
 | ARD / MDG | Sources for APID / UCID sample data |
 
 Context: testing happens in G4 before prod. Upcoming app changes mentioned in KT: ticketing for
@@ -603,19 +650,28 @@ segment/status edits, identifying-site change capability.
 2. **Pipeline SSO:** Okta/IT request for the service account (activate, assign CDUI app, password
    authenticator + MFA/device-trust exemption, CDUI role) or a dedicated CDUI test account; then a
    Dell-network GitLab runner + Docker. Do not re-run the Okta preflight until confirmed.
-3. **510 decision:** Jira CANCELLED but guard red - keep red-by-design or relax.
-4. **512/513 product decision:** should Cancel return to Home or to the Ticket List (now fixed in G4).
-5. **Ticket MFE failures from 2026-09-06** (`Grid_Shows_The_MDG_Requested_Columns`,
+   *Update 2026-09-14:* CDUI role/activation confirmed for `svc_npe2etesting@amer.dell.com`
+   (Dell_Team_Member, Activated) - only the Okta half is left. **Runner still unconfirmed:** the CDUI team
+   replied they have "dedicated pipelines in GitLab for CI/CD", which is not the same as a runner that
+   can reach G4 + Oracle; need the runner tags, executor type, network reach
+   (`g4.cdui-np.kob.dell.com`, `myaccess-uat.dell.com`, `www-sit-g4.dell.com`,
+   `cpd4sepe1dbscn.amer.dell.com:1523`) and whether `mcr.microsoft.com` is pullable or an internal
+   mirror is required.
+3. **Verify 514/515/516 by hand** (guards went green on 2026-09-09) and, if confirmed fixed, drop their `KnownDefect` traits so they become permanent green cover.
+4. **Dev question - lookup error unlocks Submit:** when `/v1/CustomerGateway/customers/{id}` returns an error, Create Ticket keeps Submit enabled with the previous country, so an unverified identifier can be submitted (seen 2026-09-09).
+5. **510 decision:** Jira CANCELLED but guard red - keep red-by-design or relax.
+6. **512/513 product decision:** should Cancel return to Home or to the Ticket List (now fixed in G4).
+7. **Ticket MFE failures from 2026-09-06** (`Grid_Shows_The_MDG_Requested_Columns`,
    `Every_Key_Ticket_Filter_Finds_The_Known_Ticket`): investigate; the latter may be stale pinned-ticket
    data (queue > 270K).
-6. **Landing-page flake:** make `HomePage.GotoAsync` re-navigate to `/` after a silent re-auth.
-7. **Grow coverage:** Account Search once stable; P2 search MFEs beyond load-and-respond; Bulk Upload /
+8. ~~Landing-page flake~~ **Fixed 2026-09-08**: `BasePage.GotoAsync` now settles after the silent SSO hop and re-requests the route once (applies to every page object). Verify with one full P1 run.
+9. **Grow coverage:** Account Search once stable; P2 search MFEs beyond load-and-respond; Bulk Upload /
    Bulk Management / Rules Lookup / Access Review / Create Org Profile / Dashboard widgets; cross-region
    identifier pairs (EMEA, APJ, LATAM); Partner Track ID sample data.
-8. **CI scheduling:** nightly P1 green gate plus a "has dev fixed it yet" job (`KnownDefect!=`).
-9. Post findings as comments on 510-519 (especially the Castle Hierarchy detail on 510); ask the manual
+10. **CI scheduling:** nightly P1 green gate plus a "has dev fixed it yet" job (`KnownDefect!=`).
+11. Post findings as comments on 510-519 (especially the Castle Hierarchy detail on 510); ask the manual
    team to put repro steps in the Jira Description, not only in screenshots.
-10. G1: fill `launchSettings.G1.json` with G1 identifiers so the G1 suite stops failing on G4-only data.
+12. G1: fill `launchSettings.G1.json` with G1 identifiers so the G1 suite stops failing on G4-only data.
 
 ---
 
@@ -626,10 +682,12 @@ segment/status edits, identifying-site change capability.
 | Setup, run, extend | `C:\repos\CDUI\README.md` |
 | MFE-by-MFE test list | `MFE_TEST_INVENTORY.md`, `P1_REGRESSION.md`, `SEARCH_COVERAGE.md` |
 | Capability / coverage one-pager (manager) | `AUTOMATION_OVERVIEW.html`, `DEMO_NOTES.md/.html` |
+| Leadership demo deck (30-min window) | `DEMO_DECK.html` (2 slides, present this) · `DEMO_DECK_FULL.html` (16-slide technical backup; slide 8 = 9 Sep run breakdown) |
 | Defects | `DEFECT_VALIDATION_510-519.md`, `DEV_QUESTIONS.md`, `TEST_REPORT.md`, `TEAMS_MESSAGE.md`, `VERIFY_STEPS.md` |
 | Relationships | `RELATIONSHIP_TYPES.md`, `RELATIONSHIP_HOWTO.md` |
 | Pipeline | `PIPELINE.md`, `.gitlab-ci.yml`, `CDUI_UIAutomation/Dockerfile` |
-| Unattended runs | `.devin/skills/README.md` and the seven skills |
+| Unattended runs | `.devin/skills/README.md` and the eight skills |
+| Two-minute live demo | `scripts/run_demo.ps1` (headed by default; `-CreateTicket` really submits a ticket - opt-in), `.devin/skills/cdui-demo/SKILL.md`, `DEMO_NOTES.md` §9 |
 | Reports | `scripts/build_regression_report.py`, `scripts/send_regression_report.ps1`, `tools/mkreport.py`, `G1_Report/` |
 | Guards | `CDUI_UIAutomation/Tests/Regression/DefectRegressionTests.cs` |
 | Auth internals | `CDUI_UIAutomation/Core/AuthHelper.cs`, `Core/BaseUiTest.cs`, `Core/PlaywrightFixture.cs`, `Config/TestSettings.cs` |
